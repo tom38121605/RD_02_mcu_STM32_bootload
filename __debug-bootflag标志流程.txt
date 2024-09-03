@@ -1,0 +1,19 @@
+
+
+//bootload控制
+00 2E 2E 2E                                                                          // bootload开机
+01 01 01 01 FF FF FF FF                                                          // bootload读bootflag 第一次为ff    --> 跳转到下面的led从机
+
+//从机控制
+73 74 33 0D 0A 72 75 6E 33 0D 0A 72 75 6E 33 0D 0A    ......    // 从机继续运行打印run
+02 02 02 02 FF FF FF FF                                                         // 从机读bootflag 第二次为ff
+03 03 03 03 55 55 AA FE 00 2E 2E 2E                                    // 从机写bootflag为aa， 从机再读bootflag 第三次为aa，然后softreset  --> 跳转到bootload运行
+
+//bootload控制
+01 01 01 01 55 55 AA AA                                                     // bootload读bootflag 第一次为aa（重复的第一次），然后接收新的从机bin文件    
+......                                                                                     // 按一下主机的reset按键，主机发送从机bin文件。bootload接收从机bin文件字节
+04 04 04 04 FF FF FF FF                                                        // 接收完bin文件后，bootload写bootflag为ff，bootload读bootflag 第四次为ff
+
+
+//然后，可跳转到从机， 由从机控制
+
