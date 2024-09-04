@@ -1,0 +1,335 @@
+串口代码更新IAP方式
+
+STM32F373RCT 
+
+--------------------------------
+
+#define FLASH_SAVE_ADDR  0x08020000	 
+uint16_t iapbuf[1024];   
+
+typedef  void (*iapfun)(void);	     //定义一个函数类型的参数.
+iapfun  jump2app; 
+
+
+=======================直接转入到某地址，直接运行另一个程序==============================
+
+flow：
+
+     main  -->    iap_load_app   
+
+
+
+-------------------------------------------------------------------------------------------------
+
+main()
+
+   while(1)
+ 
+       iap_load_app(FLASH_SAVE_ADDR);        // 0x08020000 ， 跳转到该地址运行
+
+
+
+--------------
+
+参数： 0x08020000
+iap_load_app(appxaddr)
+ 
+   if(  ( (* appxaddr)&0x2FFE0000 )==0x2000 0000  )     //检查栈顶地址是否合法.   （或直接就是程序地址是否合法）
+ 
+       jump2app=(iapfun)*(appxaddr+4);               //用户代码区第二个字为程序开始地址(复位地址)	
+	
+       MSR_MSP(*appxaddr);                                //初始化APP堆栈指针(用户代码区的第一个字用于存放栈顶地址)
+
+       jump2app();                                              //跳转到APP.
+ 
+
+
+-------
+
+__asm  MSR_MSP( addr ) 
+ 
+    MSR  MSP,  r0 			//set Main Stack value
+    BX   r14
+ 
+
+
+
+-------------------------------------
+
+3、变量addr 和 r0 是什么关系?
+答：变量 addr 的值保存在 r0 中。
+
+
+
+4、MSR MSP, r0 这条汇编语句是什么作用？
+答：MSR 的作用是将通用寄存器的值传给状态寄存器，
+    也就是将 r0 的值传给 MSP，而MSP是主堆栈指针，也就是说，将 r0 存的值传给主堆栈指针，实现设置栈顶地址。
+
+
+
+5、BX r14 这条汇编语句是什么作用？
+答：R14称为子程序链接寄存器，将子程序或是函数调用执行完成后 ，
+    通过BX r14返回到函数调用处
+ 
+补充： 
+   。 问题1对应的是keil-mdk 的编译器5 的写法， 
+       options\Target\
+           .use MicroLIB  勾选
+           .选 ”...compiler version 5"
+
+
+
+
+
+
+
+======================把bin文件的数据写入到dataflash==============================
+
+flow：
+
+     main  --> iap_write_appbin  --> STMFLASH_Write  --> STMFLASH_Read  --> FLASH_PageErase  --> STMFLASH_Write_NoCheck  --> HAL_FLASH_Program  
+
+
+dataflow:   uart -> DATA -> (appbuf) -> dfu  -->  iapbuf  --> flash
+
+-------------------------------------------------------------------------------------------------
+
+main()
+
+   while(1)
+    
+            iap_write_appbin(FLASH_SAVE_ADDR,DATA,number);   //数据写入Flash
+
+
+-----------------
+           
+dataflow：  DATA -> (appbuf) -> dfu  -->  iapbuf  --> flash
+iap_write_appbin(  appxaddr, *appbuf,  appsize)     //0x08020000 ， DATA , number    （ DATA , number 是从串口读取得来）
+ 
+    uint16_t t;
+    uint16_t i=0;
+    uint16_t temp;
+    uint32_t fwaddr=appxaddr;    //把当前的地址存入fwaddr
+
+    uint8_t *dfu=appbuf;        //把 DATA中[ ]的数据存入到 dfu[ ]中
+   
+    //把dfu中的数据，再存入到iapbuf中  （其中两个u8合并成一个u16）； 当数量达到1024个u16(即满一页2k时)，把iapbuf的数据写入到dataflash中
+    for(t=0;  t<appsize;  t+=2)    
+                            
+        temp= dfu[1]<<8;   
+        temp+= dfu[0];       
+        dfu+=2;                   //偏移2个字节  
+      
+        iapbuf[i++]=temp;    //把DATA[ ]中d数据，存入到iapbuf中      
+
+        if(i==1024)               //如满1页，则把数据写入到dataflash中    
+        
+            i=0;
+            STMFLASH_Write(fwaddr,iapbuf,1024);    
+            fwaddr+=2048;                                    //当前地址在单片机内存表中后移2k
+       
+    if(i)  
+       STMFLASH_Write(fwaddr,iapbuf,i);   //最后不足1页的部分数据，也写入到dataflash
+ 
+
+-----------------
+
+#define STM32_FLASH_SIZE 	256 	 	  //所选STM32的FLASH容量大小(单位为K)  
+#define STM_SECTOR_SIZE   2048                       //或1页
+uint16_t STMFLASH_BUF[2048/2];                        //1页数据， 可装2k数据
+
+//从指定地址开始写入指定长度的数据  , 跨页写数据 （在bootload中，可适当简化，直接整页擦除 + 写入）
+dataflow:   iapbuf ->  flash
+STMFLASH_Write(WriteAddr, *pBuffer, NumToWrite)         //0x08020000 , iapbuf,  1024
+ 
+    uint32_t ipage;             //扇区地址  //页地址
+    uint16_t ipageoff;         //扇区内偏移地址(16位字计算)
+    uint16_t ipageremain;   //扇区内剩余地址(16位字计算)       
+    uint16_t i;    
+    uint32_t offaddr;         //去掉0X08000000后的地址
+    
+    HAL_FLASH_Unlock();                    //解锁
+   
+    offaddr=WriteAddr-STM32_FLASH_BASE;       //实际偏移地址:  0x08000000-0x08020000 ,  offaddr=0x20000 
+   
+    ipage=offaddr/STM_SECTOR_SIZE;             //计算第几页（每页2k）：  0x20000 / 2048 =64， ipage= 64           
+    ipageoff=(offaddr%STM_SECTOR_SIZE)/2;        //计算在当前页的位置：   0x20000 % 2048 =0 ， ipageoff = 0   
+    ipageremain=STM_SECTOR_SIZE/2-ipageoff;        //当前页剩余空间 大小：  2048 / 2 - 0 =1024 ，ipageremain = 1024   （多少个u16）
+   
+
+    //if(NumToWrite<=ipageremain)     
+    //    ipageremain=NumToWrite;     //变小， 不需要写满整页  
+
+    iwritenum = ipageremain;           //写满本页
+    if(NumToWrite<=ipageremain)     
+        iwritenum=NumToWrite;     //不足1页，直接写入所有数据
+   
+    while(1)     
+  
+        //STMFLASH_Read(ipage*STM_SECTOR_SIZE+STM32_FLASH_BASE,STMFLASH_BUF,STM_SECTOR_SIZE/2);    //读出本页的内容   （以便擦除后，再恢复進去） 
+        //   STMFLASH_Read( 64*2048+ 0x08000000,    STMFLASH_BUF,   1024 );    
+             STMFLASH_Read(0x20000+BASE,    STMFLASH_BUF,   1024 );    
+      
+        for(i=0;  i< iwritenum;  i++)                                      //如果该段数据（要修改的数据段）里面有数据则需要擦除  （点评：直接擦除不就得了）            
+            if(STMFLASH_BUF[ipageoff+i] != 0XFFFF)    break;     //退出for
+                    
+
+        if(i<iwritenum)     //说明里面有数据，下面做擦除处理          
+       
+            FLASH_PageErase(ipage*STM_SECTOR_SIZE+STM32_FLASH_BASE);    //删除该页
+            FLASH_WaitForLastOperation(FLASH_WAITETIME);      //等待页删除完成 SR.0 =1      //timeout 50000  
+                   
+            CLEAR_BIT(FLASH->CR, FLASH_CR_PER);        //CR.1=0， 关闭“页删除”功能                                     
+                                                                                                            
+            for(i=0;  i<iwritenum;  i++)    
+                STMFLASH_BUF[i+ipageoff]=pBuffer[i];    
+          
+            //STMFLASH_Write_NoCheck(ipage*STM_SECTOR_SIZE+STM32_FLASH_BASE,  STMFLASH_BUF,  STM_SECTOR_SIZE/2);   
+                 STMFLASH_Write_NoCheck( 0x8000+BASE,  STMFLASH_BUF,  1024);   //写入整页  （为何写整页，而非写实际长度？ -- 因该段数据之外的数据要恢复進去 )
+
+         else   //里面没有数据，不需要擦除操作，直接写入       
+
+            FLASH_WaitForLastOperation(FLASH_WAITETIME);       
+            STMFLASH_Write_NoCheck(WriteAddr, pBuffer, iwritenum);        //直接写入     
+      
+        if(NumToWrite==iwritenum)   //所有的数据在本页已写完
+             break;    //退出while
+
+        else                                       //本页没写完，下一页继续写
+
+            ipage++;                                     //地址： 页数加1       
+            ipageoff=0;                                  //地址： 指向0位置
+            pBuffer+=iwritenum;                 //数据： 指向未写入的数据
+            WriteAddr+=iwritenum*2;          //     
+            NumToWrite-=iwritenum;          //数量： 先设置为整页 1024
+
+           iwritenum = ipageremain;           //写满本页
+           if(NumToWrite<=ipageremain)     
+               iwritenum=NumToWrite;     //不足1页，直接写入所有数据
+
+    HAL_FLASH_Lock();       
+
+
+   
+ 
+
+--------
+
+
+STMFLASH_Write_NoCheck( WriteAddr,  *pBuffer,  NumToWrite)   
+
+    for(i=0;i<NumToWrite;i++) 
+
+        HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD,WriteAddr,pBuffer[i]);
+
+        WriteAddr+=2; 
+
+
+ 
+
+========================参考======本人未修改前==================================================
+
+//从指定地址开始写入指定长度的数据  , 跨页写数据 （在bootload中，可适当简化，直接整页擦除 + 写入）
+dataflow:   iapbuf ->  flash
+STMFLASH_Write(WriteAddr, *pBuffer, NumToWrite)         //0x08020000 , iapbuf,  1024
+ 
+    uint32_t secpos;       //扇区地址  //页地址
+    uint16_t secoff;        //扇区内偏移地址(16位字计算)
+    uint16_t secremain;   //扇区内剩余地址(16位字计算)       
+    uint16_t i;    
+    uint32_t offaddr;    //去掉0X08000000后的地址
+    
+    HAL_FLASH_Unlock();                    //解锁
+   
+    offaddr=WriteAddr-STM32_FLASH_BASE;       //实际偏移地址:  0x08000000-0x08020000 ,  offaddr=0x20000 
+   
+    secpos=offaddr/STM_SECTOR_SIZE;             //计算第几页（每页2k）：  0x20000 / 2048 =64， secpos= 64           
+    secoff=(offaddr%STM_SECTOR_SIZE)/2;        //计算在当前页的位置：   0x20000 % 2048 =0 ， secoff = 0   
+    secremain=STM_SECTOR_SIZE/2-secoff;        //当前页剩余空间 大小：  2048 / 2 - 0 =1024 ，secremain = 1024   （多少个u16）
+   
+    
+    if(NumToWrite<=secremain)     
+        secremain=NumToWrite;     //变小， 不需要写满整页  
+   
+    while(1)     
+  
+        //STMFLASH_Read(secpos*STM_SECTOR_SIZE+STM32_FLASH_BASE,STMFLASH_BUF,STM_SECTOR_SIZE/2);    //读出整个扇区的内容   （以便擦除后，再恢复進去） 
+        //   STMFLASH_Read(64*2048+ 0x08000000,    STMFLASH_BUF,   1024 );    
+             STMFLASH_Read(0x8000+BASE,    STMFLASH_BUF,   1024 );    
+      
+        for(i=0;  i<secremain;  i++)                                    
+            if(STMFLASH_BUF[secoff+i] != 0XFFFF)    break;            //如果该段数据（要修改的数据段）里面有数据则需要擦除  （点评：直接擦除不就得了）
+
+        if(i<secremain)     //说明里面有数据，下面做擦除处理          
+       
+            FLASH_PageErase(secpos*STM_SECTOR_SIZE+STM32_FLASH_BASE);    //删除该页
+            FLASH_WaitForLastOperation(FLASH_WAITETIME);      //等待页删除完成 SR.0 =1      //timeout 50000  
+                   
+            CLEAR_BIT(FLASH->CR, FLASH_CR_PER);        //CR.1=0， 关闭“页删除”功能                                     
+                                                                                                            
+            for(i=0;  i<secremain;  i++)    
+                STMFLASH_BUF[i+secoff]=pBuffer[i];    
+          
+            //STMFLASH_Write_NoCheck(secpos*STM_SECTOR_SIZE+STM32_FLASH_BASE,  STMFLASH_BUF,  STM_SECTOR_SIZE/2);   
+                 STMFLASH_Write_NoCheck( 0x8000+BASE,  STMFLASH_BUF,  1024);   //写入整页  （为什么要写入整页，而不是写入输入数据的长度？ -- 因为该段数据之外的数据要恢复進去 )
+
+         else   //里面没有数据，不需要擦除操作，直接写入       
+            FLASH_WaitForLastOperation(FLASH_WAITETIME);       
+            STMFLASH_Write_NoCheck(WriteAddr, pBuffer, secremain);        //直接写入     
+      
+
+        if(NumToWrite==secremain)   //所有的数据都可以在本页写完
+             break;  
+
+        else                                       //本页写不下的数据，放在下一页继续写
+
+            secpos++;                                //地址： 页数加1       
+            secoff=0;                                  //地址： 指向0位置
+            pBuffer+=secremain;                 //数据： 指向未写入d数据
+            WriteAddr+=secremain*2;          //     
+            NumToWrite-=secremain;          //数量： 先设置为整页 1024
+
+            //下面四句d逻辑跟上面一样
+            //if(NumToWrite>(STM_SECTOR_SIZE/2))
+            //      secremain=STM_SECTOR_SIZE/2;    
+            //else 
+            //     secremain=NumToWrite;         
+
+           //上面四句用下面两句代替
+           if(NumToWrite<=secremain)     
+               secremain=NumToWrite;     //变小， 不需要写满整页    
+
+    HAL_FLASH_Lock();        
+
+
+
+===========================参考====================================
+
+检查栈顶是否合法代码如下：
+#define STM32_APP_BASE        0x08020000        // APP flash start address
+
+iap_jumpapp(void)
+
+    // 检查栈顶是否合法，确保栈顶落在0x24000000-0x24FFFFFF 之间，刚好在stm32h7的RAM范围内
+    if (((*(uint32_t*)(STM32_APP_BASE)) & 0xff000000 ) == 0x24000000 ) 
+        
+        // 检查reset入口是否正确
+        if (((*(uint32_t*)(STM32_APP_BASE + 4)) & 0x0fff0000 ) == 0x08020000 ) 
+
+            JumpToApp = (pfunction)((*(uint32_t*)(STM32_APP_BASE + 4)));
+            MSR_MSP(*(uint32_t*)STM32_APP_BASE);
+
+            JumpToApp();
+       
+    else 
+        ...
+
+
+
+
+
+
+
+
+
+
