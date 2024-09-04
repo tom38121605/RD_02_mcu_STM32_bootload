@@ -43,7 +43,6 @@ iap_load_app(appxaddr)
        jump2app();                                              //跳转到APP.
  
 
-
 -------
 
 __asm  MSR_MSP( addr ) 
@@ -123,7 +122,6 @@ iap_write_appbin(  appxaddr, *appbuf,  appsize)     //0x08020000 ， DATA , numbe
         iapbuf[i++]=temp;    //把DATA[ ]中d数据，存入到iapbuf中      
 
         if(i==1024)               //如满1页，则把数据写入到dataflash中    
-        
             i=0;
             STMFLASH_Write(fwaddr,iapbuf,1024);    
             fwaddr+=2048;                                    //当前地址在单片机内存表中后移2k
@@ -150,7 +148,7 @@ STMFLASH_Write(WriteAddr, *pBuffer, NumToWrite)         //0x08020000 , iapbuf,  
     
     HAL_FLASH_Unlock();                    //解锁
    
-    offaddr=WriteAddr-STM32_FLASH_BASE;       //实际偏移地址:  0x08000000-0x08020000 ,  offaddr=0x20000 
+    offaddr=WriteAddr-STM32_FLASH_BASE;       //实际偏移地址:  0x08020000-0x08000000 ,  offaddr=0x20000 
    
     ipage=offaddr/STM_SECTOR_SIZE;             //计算第几页（每页2k）：  0x20000 / 2048 =64， ipage= 64           
     ipageoff=(offaddr%STM_SECTOR_SIZE)/2;        //计算在当前页的位置：   0x20000 % 2048 =0 ， ipageoff = 0   

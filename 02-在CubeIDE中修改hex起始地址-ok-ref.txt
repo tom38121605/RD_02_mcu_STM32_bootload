@@ -1,0 +1,50 @@
+
+
+1.  在 STM32C011F6UX_FLASH.ld 中 ，修改运行起始地址
+
+    //FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 32K
+     /* ld文件中不能用“//”来注释   */
+    FLASH    (rx)    : ORIGIN = 0x8003000,   LENGTH = 20K
+
+
+1. 下面是ommo工程的参考
+
+    STM32C011F6UX_FLASH.ld
+ 
+    MEMORY
+    {
+        RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 6K
+        FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 30K
+        RAM    (xrw)    : ORIGIN = 0x20000004,   LENGTH = (6K - 4)  /* First word in the RAM is reserved for the booloader entry flag. */
+        FLASH    (rx)    : ORIGIN = 0x8000800,   LENGTH = (28K - 4) /* Last word is reserved for application check word. */
+    }
+
+
+2.  直接在main中添加下面一句    （推荐）
+
+    SCB->VTOR = FLASH_BASE | VECT_TAB_OFFSET;  
+
+
+
+2.  在 system_stm32c0xx.c 中，修改中断向量表偏移地址   （应也适用于keil了）   （不推荐，建议用上面直接在main中添加）
+ 
+        //#define VECT_TAB_OFFSET 0x00
+        #define VECT_TAB_OFFSET 0x3000
+ 
+        void SystemInit(void)
+
+        { 
+ 
+  
+           SCB->VTOR = FLASH_BASE | VECT_TAB_OFFSET;  
+
+        }
+
+
+ 
+3. 在 stm32c011xx.h 中，  FLASH_BASE不需要修改，保持不变 （待验证）
+
+    #define FLASH_BASE            (0x08000000UL)
+
+
+
