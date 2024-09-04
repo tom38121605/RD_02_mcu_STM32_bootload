@@ -136,7 +136,7 @@ iap_write_appbin(  appxaddr, *appbuf,  appsize)     //0x08020000 ， DATA , numbe
 #define STM_SECTOR_SIZE   2048                       //或1页
 uint16_t STMFLASH_BUF[2048/2];                        //1页数据， 可装2k数据
 
-//从指定地址开始写入指定长度的数据  , 跨页写数据 （在bootload中，可适当简化，直接整页擦除 + 写入）
+//从指定地址开始写入指定长度的数据  , 跨页写数据 （在bootload中，可适当简化，直接整页擦除 + 写入）  //实际是一页一页写入，并没有跨页
 dataflow:   iapbuf ->  flash
 STMFLASH_Write(WriteAddr, *pBuffer, NumToWrite)         //0x08020000 , iapbuf,  1024
  
@@ -144,13 +144,13 @@ STMFLASH_Write(WriteAddr, *pBuffer, NumToWrite)         //0x08020000 , iapbuf,  
     uint16_t ipageoff;         //扇区内偏移地址(16位字计算)
     uint16_t ipageremain;   //扇区内剩余地址(16位字计算)       
     uint16_t i;    
-    uint32_t offaddr;         //去掉0X08000000后的地址
+    uint32_t offaddr;          //去掉0X08000000后的地址
     
     HAL_FLASH_Unlock();                    //解锁
    
     offaddr=WriteAddr-STM32_FLASH_BASE;       //实际偏移地址:  0x08020000-0x08000000 ,  offaddr=0x20000 
    
-    ipage=offaddr/STM_SECTOR_SIZE;             //计算第几页（每页2k）：  0x20000 / 2048 =64， ipage= 64           
+    ipage=offaddr/STM_SECTOR_SIZE;               //计算第几页（每页2k）：  0x20000 / 2048 =64， ipage= 64           
     ipageoff=(offaddr%STM_SECTOR_SIZE)/2;        //计算在当前页的位置：   0x20000 % 2048 =0 ， ipageoff = 0   
     ipageremain=STM_SECTOR_SIZE/2-ipageoff;        //当前页剩余空间 大小：  2048 / 2 - 0 =1024 ，ipageremain = 1024   （多少个u16）
    
@@ -160,7 +160,7 @@ STMFLASH_Write(WriteAddr, *pBuffer, NumToWrite)         //0x08020000 , iapbuf,  
 
     iwritenum = ipageremain;           //写满本页
     if(NumToWrite<=ipageremain)     
-        iwritenum=NumToWrite;     //不足1页，直接写入所有数据
+        iwritenum=NumToWrite;       //不足1页，直接写入所有数据
    
     while(1)     
   
@@ -206,9 +206,7 @@ STMFLASH_Write(WriteAddr, *pBuffer, NumToWrite)         //0x08020000 , iapbuf,  
                iwritenum=NumToWrite;     //不足1页，直接写入所有数据
 
     HAL_FLASH_Lock();       
-
-
-   
+  
  
 
 --------
