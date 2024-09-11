@@ -1,0 +1,20 @@
+
+用熔丝位和引脚设置烧录方式的过程：
+
+   bootlock  -->  nBOOT_SEL  --  nBOOT0 (或BOOT0引脚)  -->  nBOOT1
+
+   1. 先看bootlock，默认是0，固启动方式由另外的4个熔丝（含引脚）位决定
+   2. 再看 nBOOT_SEL，默认是1，意思是屏蔽外部BOOT0引脚，由部nBOOT0来设置启动方式， 启动方式由另外的2个熔丝位决定
+   3. 再看nBOOT0, 默认是1， 意思是屏蔽nBOOT1，直接决定启动方式为主flash，即stlink烧录
+   4. 如果再把把nBOOT0修改为0，则由nBOOT1决定启动方式，nBOOT1为1时，启动方式为系统flash，即uart烧录。 如nBOOT1为0，则启动方式为SRAM，烧录方式为？
+
+
+串口（官方内置ISP）烧录的基本操作：
+
+   1. 全部4个熔丝位保持初值不变，因nBOOT_SEL为1， 启动类型完全由熔丝位决定，可忽略BOOT0引脚
+   2. 运行stm32cubeprog的pc烧录软件， 用stlink方式连接烧录器，把熔丝位nBOOT0设置为0， Apply （会跳出提示框programmed成功）
+   3. 断开stlink，按reset键，用uart方式连接烧录器 （如未找到com端口，则在右边刷新按钮上点一下）
+   4. 用串口下载hex文件
+   5. 再用stlink方式连接，把熔丝位nBOOT0改回1，回到原始设置 （这样后，NRST和uart功能就正常了）
+   6. 串口方式每次连接烧录前，最好都要按一下NRST按键
+
