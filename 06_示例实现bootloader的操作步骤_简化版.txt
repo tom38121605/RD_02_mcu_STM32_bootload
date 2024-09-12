@@ -1,0 +1,42 @@
+
+简化版： 不需要bootloader的启动指令及相关操作
+
+说明1：  （地址安排）
+
+     0000 -  3000：  放bootloader程序
+     3001 -  7000：  放APP程序
+     7001 -  7800： 放一些标志
+     7800 -  8000： 放eerom数据
+
+测试流程说明如下： 
+       。本对测包括3个程序， master， bootloader， led
+       。把led的bin文件变成数组，存入到master中。
+       。master把ledbin，通过uart传送到bootloader，bootloader接收后存入到83000-87000中
+       。接收完毕后，bootloader跳转到83000处，直接运行led程序。
+
+//0. 先在stm32cubeprog中，整片删除从机板的mcu的rom  （为烧录bootloader程序做准备）   //忽略这一步， 先只给从机上电就可以
+
+1. 在stm32cubeide中，把 一个简单的led例子，修改成bootloader的从机例子
+
+    。修改以下2个地方：
+       //FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 32K
+     /* ld文件中不能用“//”来注释   */
+       FLASH    (rx)    : ORIGIN = 0x8003000,   LENGTH = 20K
+
+        //#define VECT_TAB_OFFSET 0x00
+        #define VECT_TAB_OFFSET 0x3000
+
+    。有时在cube中编译后，rom使用率看起来是11k多，实际bin文件只有3k多，以bin文件的大小为准
+
+2. 把上面led的bin文件，导入到jflash中，生成数组文件，再拷贝到master程序中
+
+3. 把master程序烧录到板1， 把bootloader程序烧录到板2，把两块板的串口连在一起
+
+4. 先给master板上电，再给bootloader板上电，等待传输完毕，bootloader小灯从快闪变为慢闪。   （待验证）
+
+
+
+
+
+
+

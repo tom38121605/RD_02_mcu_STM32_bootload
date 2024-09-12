@@ -13,10 +13,10 @@
  
     MEMORY
     {
-        RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 6K
-        FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 30K
-        RAM    (xrw)    : ORIGIN = 0x20000004,   LENGTH = (6K - 4)  /* First word in the RAM is reserved for the booloader entry flag. */
-        FLASH    (rx)    : ORIGIN = 0x8000800,   LENGTH = (28K - 4) /* Last word is reserved for application check word. */
+        //RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 6K
+        //FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 30K
+        RAM    (xrw)    : ORIGIN = 0x20000004,   LENGTH = (6K - 4)   /* First word in the RAM is reserved for the booloader entry flag. */
+        FLASH    (rx)    : ORIGIN = 0x8000800,   LENGTH = (28K - 4)    /* Last word is reserved for application check word. */
     }
 
 
@@ -36,7 +36,7 @@
         { 
  
   
-           SCB->VTOR = FLASH_BASE | VECT_TAB_OFFSET;  
+            SCB->VTOR = FLASH_BASE | VECT_TAB_OFFSET;  
 
         }
 
